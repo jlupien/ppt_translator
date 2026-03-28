@@ -29,11 +29,30 @@ class TranslationService:
         self.model = model
         self._cache: Dict[str, str] = {}
 
+    def generate_context_summary(
+        self, deck_text: str, source_lang: str, target_lang: str
+    ) -> str:
+        """Generate a translation glossary/context summary from the full deck text."""
+        source_clause = f"from {source_lang} " if source_lang else ""
+        system_prompt = (
+            f"You are preparing to translate a presentation {source_clause}to {target_lang}.\n"
+            "Below is all the text from the presentation. Create a concise translation guide "
+            "(under 500 words) that includes:\n"
+            "- A glossary of key terms and their preferred translations\n"
+            "- The overall tone and register (formal, casual, technical, etc.)\n"
+            "- Any domain-specific terminology or recurring phrases and how to translate them\n"
+            "- Notes on any proper nouns, acronyms, or terms that should NOT be translated\n\n"
+            "This guide will be provided as context for translating each slide individually. "
+            "Be concise and practical — focus on what a translator needs to stay consistent."
+        )
+        return self._call_api(system_prompt, deck_text)
+
     def translate_segments(
         self,
         segments: List[str],
         source_lang: str,
         target_lang: str,
+        context: str = "",
     ) -> List[str]:
         """Translate a list of text segments, preserving order and count.
 
@@ -63,6 +82,12 @@ class TranslationService:
         joined = SEGMENT_DELIMITER.join(uncached_texts)
 
         source_clause = f"from {source_lang} " if source_lang else ""
+        context_block = ""
+        if context:
+            context_block = (
+                "\n\nTRANSLATION GUIDE (use for consistent terminology and tone):\n"
+                f"{context}\n"
+            )
         system_prompt = (
             f"You are a translation assistant. Translate text {source_clause}"
             f"to {target_lang}. Preserve tone, meaning, and formatting.\n\n"
@@ -73,6 +98,7 @@ class TranslationService:
             "- Do NOT add any explanation, numbering, or extra text.\n"
             "- If a segment is empty or whitespace, return it unchanged.\n"
             "- Preserve any special characters, numbers, or formatting marks."
+            f"{context_block}"
         )
 
         translated_text = self._call_api(system_prompt, joined)
@@ -86,7 +112,7 @@ class TranslationService:
         if len(translated_parts) != len(uncached_texts):
             # Fallback: retry with individual translations
             translated_parts = self._translate_individually(
-                uncached_texts, source_lang, target_lang
+                uncached_texts, source_lang, target_lang, context=context
             )
 
         # Populate cache and build result
@@ -98,14 +124,21 @@ class TranslationService:
         return [cached_results[i] for i in range(len(segments))]
 
     def _translate_individually(
-        self, texts: List[str], source_lang: str, target_lang: str
+        self, texts: List[str], source_lang: str, target_lang: str, context: str = ""
     ) -> List[str]:
         """Fallback: translate each segment individually."""
         results = []
         source_clause = f"from {source_lang} " if source_lang else ""
+        context_block = ""
+        if context:
+            context_block = (
+                "\n\nTRANSLATION GUIDE (use for consistent terminology and tone):\n"
+                f"{context}\n"
+            )
         system_prompt = (
             f"You are a translation assistant. Translate the text {source_clause}"
             f"to {target_lang}. Return ONLY the translation, nothing else."
+            f"{context_block}"
         )
         for text in texts:
             if not text.strip():

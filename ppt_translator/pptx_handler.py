@@ -212,6 +212,24 @@ def _find_word_boundary(text: str, pos: int) -> int:
     return pos
 
 
+def build_deck_summary(prs: Presentation) -> str:
+    """Build a compact text summary of the entire presentation for context generation.
+
+    Returns one line per slide with title and body text separated by pipes.
+    """
+    lines = []
+    for slide_number, slide in enumerate(prs.slides, start=1):
+        parts = []
+        for shape in slide.shapes:
+            if hasattr(shape, "text") and shape.text.strip():
+                parts.append(shape.text.strip())
+        if parts:
+            lines.append(f"Slide {slide_number}: {' | '.join(parts)}")
+        else:
+            lines.append(f"Slide {slide_number}: (no text)")
+    return "\n".join(lines)
+
+
 def load_presentation(path: str) -> Presentation:
     """Load a PowerPoint presentation."""
     return Presentation(path)

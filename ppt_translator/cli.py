@@ -13,6 +13,7 @@ load_dotenv()
 
 from .pptx_handler import (
     apply_translations,
+    build_deck_summary,
     collect_segments,
     extract_slide_text,
 )
@@ -42,6 +43,15 @@ def _translate_file(
     prs = Presentation(str(input_path))
     total_slides = len(prs.slides)
 
+    # Pass 1: Generate translation context from full deck
+    print("  Generating translation guide...", end=" ", flush=True)
+    deck_summary = build_deck_summary(prs)
+    context = translator.generate_context_summary(
+        deck_summary, source_lang, target_lang
+    )
+    print("done.")
+
+    # Pass 2: Translate each slide with context
     for slide_number, slide in enumerate(prs.slides, start=1):
         print(f"  Slide {slide_number}/{total_slides}...", end=" ", flush=True)
 
@@ -52,7 +62,9 @@ def _translate_file(
             print("(no text)")
             continue
 
-        translated = translator.translate_segments(segments, source_lang, target_lang)
+        translated = translator.translate_segments(
+            segments, source_lang, target_lang, context=context
+        )
         apply_translations(slide_text, translated)
         print(f"({len(segments)} segment(s) translated)")
 
