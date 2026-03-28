@@ -43,7 +43,7 @@ By default, the translated file is saved as `<original>_translated.pptx` in the 
 | `-t`, `--target` | Target language (required) |
 | `-s`, `--source` | Source language (default: auto-detect) |
 | `-o`, `--output` | Output file path (single file only) |
-| `--model` | Claude model override (default: claude-sonnet-4-5-20250514) |
+| `--model` | Claude model override (default: claude-sonnet-4-20250514) |
 
 ## How It Works
 

@@ -7,7 +7,7 @@ from typing import Dict, List, Optional
 
 from anthropic import Anthropic, APIError, RateLimitError
 
-DEFAULT_MODEL = "claude-sonnet-4-5-20250514"
+DEFAULT_MODEL = "claude-sonnet-4-20250514"
 SEGMENT_DELIMITER = " ||| "
 
 
