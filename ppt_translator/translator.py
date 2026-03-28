@@ -98,10 +98,13 @@ class TranslationService:
             "- Do NOT add any explanation, numbering, or extra text.\n"
             "- If a segment is empty or whitespace, return it unchanged.\n"
             "- Preserve any special characters, numbers, or formatting marks.\n"
-            "- Some segments contain <rN>...</rN> tags (e.g., <r1>text</r1><r2>more</r2>) "
-            "marking formatting boundaries. Preserve these tags exactly in your translation: "
-            "translate the text INSIDE each tag, keep the tags themselves unchanged, "
-            "and maintain their order. Every tag from the input must appear in the output."
+            "- IMPORTANT: Some segments contain <rN>...</rN> tags marking formatting boundaries. "
+            "Each tag represents text with DIFFERENT visual formatting (e.g., bold, italic, underlined, colored). "
+            "When translating, you MUST keep the SAME MEANING inside each tag. "
+            "For example, if <r2>probing</r2> is the specially formatted word, then <r2> in the translation "
+            "must contain the translation of 'probing' (e.g., <r2>sondage</r2>), NOT a different word. "
+            "The tags mark WHICH WORDS have special formatting — map meaning to meaning, not position to position. "
+            "Keep all tags in order. Every tag from the input must appear in the output."
             f"{context_block}"
         )
 
