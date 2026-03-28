@@ -6,7 +6,10 @@ import sys
 from pathlib import Path
 from typing import List, Sequence
 
+from dotenv import load_dotenv
 from pptx import Presentation
+
+load_dotenv()
 
 from .pptx_handler import (
     apply_translations,
