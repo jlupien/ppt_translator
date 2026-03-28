@@ -56,7 +56,7 @@ def _translate_file(
         print(f"  Slide {slide_number}/{total_slides}...", end=" ", flush=True)
 
         slide_text = extract_slide_text(slide, slide_number)
-        segments = collect_segments(slide_text)
+        segments, has_markup = collect_segments(slide_text)
 
         if not segments:
             print("(no text)")
@@ -65,7 +65,7 @@ def _translate_file(
         translated = translator.translate_segments(
             segments, source_lang, target_lang, context=context
         )
-        apply_translations(slide_text, translated)
+        apply_translations(slide_text, translated, has_markup)
         print(f"({len(segments)} segment(s) translated)")
 
     prs.save(str(output_path))

@@ -1,8 +1,9 @@
 """Read and write PowerPoint files while preserving run-level formatting."""
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 from pptx import Presentation
 from pptx.enum.shapes import MSO_SHAPE_TYPE
@@ -109,26 +110,47 @@ def extract_slide_text(slide, slide_number: int) -> SlideText:
     return slide_text
 
 
-def collect_segments(slide_text: SlideText) -> List[str]:
+def collect_segments(slide_text: SlideText) -> Tuple[List[str], List[bool]]:
     """Collect all non-empty text segments from a slide for batch translation.
 
-    Returns a flat list of paragraph texts. Each paragraph's text is one segment.
+    Multi-run paragraphs are wrapped in <rN> tags so Claude can preserve
+    formatting boundaries. Single-run paragraphs are sent as plain text.
+
+    Returns (segments, has_markup) — parallel lists.
     """
     segments = []
+    has_markup = []
     for shape in slide_text.shapes:
         for tf in shape.text_frames:
             for para in tf.paragraphs:
                 text = para.text
-                if text.strip():
+                if not text.strip():
+                    continue
+                if len(para.runs) > 1:
+                    tagged = "".join(
+                        f"<r{i+1}>{r.text}</r{i+1}>"
+                        for i, r in enumerate(para.runs)
+                    )
+                    segments.append(tagged)
+                    has_markup.append(True)
+                else:
                     segments.append(text)
-    return segments
+                    has_markup.append(False)
+    return segments, has_markup
 
 
-def apply_translations(slide_text: SlideText, translated_segments: List[str]) -> None:
+def apply_translations(
+    slide_text: SlideText,
+    translated_segments: List[str],
+    has_markup: List[bool],
+) -> None:
     """Write translated text back into the original pptx text frames.
 
     Preserves all run-level formatting (font, size, color, bold, italic, etc.)
     by only modifying the .text property of each run.
+
+    For segments with markup tags, parses <rN> tags to map text to the correct
+    runs. Falls back to proportional distribution if parsing fails.
     """
     seg_idx = 0
 
@@ -143,9 +165,40 @@ def apply_translations(slide_text: SlideText, translated_segments: List[str]) ->
                     break
 
                 translated = translated_segments[seg_idx]
+                markup = has_markup[seg_idx] if seg_idx < len(has_markup) else False
                 seg_idx += 1
 
+                pptx_runs = list(pptx_para.runs)
+
+                if markup and len(pptx_runs) > 1:
+                    parsed = _parse_tagged_runs(translated, len(pptx_runs))
+                    if parsed is not None:
+                        for run, text in zip(pptx_runs, parsed):
+                            run.text = text
+                        continue
+
+                # Fallback: proportional distribution
                 _distribute_text_to_runs(pptx_para, para_info.runs, translated)
+
+
+def _parse_tagged_runs(text: str, num_runs: int) -> Optional[List[str]]:
+    """Parse <r1>...</r1><r2>...</r2> tags from translated text.
+
+    Returns a list of run texts if all tags are found in order,
+    or None if parsing fails (triggering proportional fallback).
+    """
+    results = []
+    for i in range(1, num_runs + 1):
+        pattern = rf"<r{i}>(.*?)</r{i}>"
+        match = re.search(pattern, text, re.DOTALL)
+        if match is None:
+            return None
+        results.append(match.group(1))
+
+    if len(results) != num_runs:
+        return None
+
+    return results
 
 
 def _distribute_text_to_runs(pptx_para, run_infos: List[RunInfo], translated: str) -> None:

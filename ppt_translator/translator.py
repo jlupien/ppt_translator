@@ -97,7 +97,11 @@ class TranslationService:
             f"- You MUST return exactly {len(uncached_texts)} segment(s).\n"
             "- Do NOT add any explanation, numbering, or extra text.\n"
             "- If a segment is empty or whitespace, return it unchanged.\n"
-            "- Preserve any special characters, numbers, or formatting marks."
+            "- Preserve any special characters, numbers, or formatting marks.\n"
+            "- Some segments contain <rN>...</rN> tags (e.g., <r1>text</r1><r2>more</r2>) "
+            "marking formatting boundaries. Preserve these tags exactly in your translation: "
+            "translate the text INSIDE each tag, keep the tags themselves unchanged, "
+            "and maintain their order. Every tag from the input must appear in the output."
             f"{context_block}"
         )
 
