@@ -156,7 +156,13 @@ def apply_translations(
 
     for shape in slide_text.shapes:
         for tf in shape.text_frames:
-            for para_info, pptx_para in zip(tf.paragraphs, tf.text_frame.paragraphs):
+            # Build aligned pairs: skip pptx paragraphs that have no runs
+            # (empty lines between bullets, etc.) to match our filtered list
+            pptx_paras_with_runs = [
+                p for p in tf.text_frame.paragraphs if list(p.runs)
+            ]
+
+            for para_info, pptx_para in zip(tf.paragraphs, pptx_paras_with_runs):
                 original_text = para_info.text
                 if not original_text.strip():
                     continue
