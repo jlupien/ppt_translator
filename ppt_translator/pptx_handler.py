@@ -289,6 +289,41 @@ def build_deck_summary(prs: Presentation) -> str:
     return "\n".join(lines)
 
 
+@dataclass
+class ImageInfo:
+    """An image shape on a slide."""
+    shape: object  # pptx Shape reference
+    image_bytes: bytes
+
+
+def extract_images(slide) -> List[ImageInfo]:
+    """Extract all image shapes from a slide."""
+    images = []
+    for shape in slide.shapes:
+        if shape.shape_type == MSO_SHAPE_TYPE.PICTURE:
+            blob = shape.image.blob
+            if blob:
+                images.append(ImageInfo(shape=shape, image_bytes=blob))
+    return images
+
+
+def replace_image(shape, new_image_bytes: bytes) -> None:
+    """Replace an image shape's content with new image bytes.
+
+    Preserves the shape's position and size on the slide.
+    """
+    # Get the image part through the slide's relationship
+    pic = shape._element
+    ns = "{http://schemas.openxmlformats.org/drawingml/2006/main}"
+    blip = pic.find(f".//{ns}blip")
+    rId = blip.get(
+        "{http://schemas.openxmlformats.org/officeDocument/2006/relationships}embed"
+    )
+    slide_part = shape.part
+    image_part = slide_part.related_part(rId)
+    image_part._blob = new_image_bytes
+
+
 def load_presentation(path: str) -> Presentation:
     """Load a PowerPoint presentation."""
     return Presentation(path)

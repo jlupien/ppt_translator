@@ -15,7 +15,9 @@ from .pptx_handler import (
     apply_translations,
     build_deck_summary,
     collect_segments,
+    extract_images,
     extract_slide_text,
+    replace_image,
 )
 from .translator import DEFAULT_MODEL, TranslationService
 
@@ -38,9 +40,12 @@ def _translate_file(
     translator: TranslationService,
     source_lang: str,
     target_lang: str,
+    translate_images: bool = False,
 ) -> None:
     """Translate a single PPTX file."""
     prs = Presentation(str(input_path))
+    # Track already-processed images by content hash to skip duplicates
+    _processed_image_hashes: set[str] = set()
     total_slides = len(prs.slides)
 
     # Pass 1: Generate translation context from full deck
@@ -55,18 +60,54 @@ def _translate_file(
     for slide_number, slide in enumerate(prs.slides, start=1):
         print(f"  Slide {slide_number}/{total_slides}...", end=" ", flush=True)
 
+        # Translate text in shapes
         slide_text = extract_slide_text(slide, slide_number)
         segments, has_markup = collect_segments(slide_text)
 
-        if not segments:
-            print("(no text)")
-            continue
+        text_count = 0
+        if segments:
+            translated = translator.translate_segments(
+                segments, source_lang, target_lang, context=context
+            )
+            apply_translations(slide_text, translated, has_markup)
+            text_count = len(segments)
 
-        translated = translator.translate_segments(
-            segments, source_lang, target_lang, context=context
-        )
-        apply_translations(slide_text, translated, has_markup)
-        print(f"({len(segments)} segment(s) translated)")
+        # Translate text in images
+        img_count = 0
+        if translate_images:
+            import hashlib
+            from .image_handler import translate_image, is_image_too_small
+
+            images = extract_images(slide)
+            for img_info in images:
+                # Skip small images (logos, icons, bullets)
+                if is_image_too_small(img_info.image_bytes):
+                    continue
+
+                # Skip duplicate images (same background reused across slides)
+                img_hash = hashlib.sha1(img_info.image_bytes).hexdigest()
+                if img_hash in _processed_image_hashes:
+                    continue
+                _processed_image_hashes.add(img_hash)
+
+                new_bytes = translate_image(
+                    img_info.image_bytes, translator,
+                    source_lang, target_lang, deck_context=context,
+                )
+                if new_bytes is not None:
+                    replace_image(img_info.shape, new_bytes)
+                    img_count += 1
+
+        # Progress output
+        parts = []
+        if text_count:
+            parts.append(f"{text_count} segment(s)")
+        if img_count:
+            parts.append(f"{img_count} image(s)")
+        if parts:
+            print(f"({', '.join(parts)} translated)")
+        else:
+            print("(no text)")
 
     prs.save(str(output_path))
     print(f"  Saved: {output_path}")
@@ -104,6 +145,11 @@ def build_parser() -> argparse.ArgumentParser:
         default=DEFAULT_MODEL,
         help=f"Claude model to use (default: {DEFAULT_MODEL}).",
     )
+    parser.add_argument(
+        "--translate-images",
+        action="store_true",
+        help="Also translate text within images (requires easyocr).",
+    )
     return parser
 
 
@@ -138,6 +184,9 @@ def main(argv: Sequence[str] | None = None) -> None:
         source_label = args.source or "auto-detect"
         print(f"  {source_label} → {args.target}")
 
-        _translate_file(pptx_file, out, translator, args.source, args.target)
+        _translate_file(
+            pptx_file, out, translator, args.source, args.target,
+            translate_images=args.translate_images,
+        )
 
     print("Done.")

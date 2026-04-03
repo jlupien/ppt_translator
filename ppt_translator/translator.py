@@ -1,6 +1,7 @@
 """Translation service using Claude API."""
 from __future__ import annotations
 
+import base64
 import os
 import time
 from typing import Dict, List, Optional
@@ -154,6 +155,89 @@ class TranslationService:
             translated = self._call_api(system_prompt, text)
             results.append(translated)
         return results
+
+    def describe_image(self, image_bytes: bytes) -> str:
+        """Send an image to Claude Vision and get a description with text context."""
+        b64 = base64.standard_b64encode(image_bytes).decode("utf-8")
+        # Detect media type from bytes
+        if image_bytes[:8] == b'\x89PNG\r\n\x1a\n':
+            media_type = "image/png"
+        elif image_bytes[:2] == b'\xff\xd8':
+            media_type = "image/jpeg"
+        else:
+            media_type = "image/png"  # Default
+
+        response = self.client.messages.create(
+            model=self.model,
+            max_tokens=1024,
+            temperature=0.0,
+            system=(
+                "You are analyzing an image from a presentation slide. "
+                "Describe what the image shows and list all visible text in context. "
+                "Be concise (under 200 words). Focus on what the text means in context — "
+                "this description will be used to help translate the text accurately."
+            ),
+            messages=[{
+                "role": "user",
+                "content": [
+                    {
+                        "type": "image",
+                        "source": {
+                            "type": "base64",
+                            "media_type": media_type,
+                            "data": b64,
+                        },
+                    },
+                    {
+                        "type": "text",
+                        "text": "Describe this image and all visible text within it.",
+                    },
+                ],
+            }],
+        )
+        return "".join(
+            part.text for part in response.content if hasattr(part, "text")
+        ).strip()
+
+    def translate_image_text(
+        self,
+        text: str,
+        source_lang: str,
+        target_lang: str,
+        deck_context: str = "",
+        image_context: str = "",
+    ) -> str:
+        """Translate a single text string from an image, with full context."""
+        if not text.strip():
+            return text
+
+        cache_key = f"img:{source_lang}:{target_lang}:{text}"
+        if cache_key in self._cache:
+            return self._cache[cache_key]
+
+        source_clause = f"from {source_lang} " if source_lang else ""
+        context_parts = []
+        if deck_context:
+            context_parts.append(
+                f"TRANSLATION GUIDE (deck-wide):\n{deck_context}"
+            )
+        if image_context:
+            context_parts.append(
+                f"IMAGE CONTEXT:\n{image_context}"
+            )
+        context_block = "\n\n".join(context_parts)
+
+        system_prompt = (
+            f"You are a translation assistant. Translate text {source_clause}"
+            f"to {target_lang}. Return ONLY the translation, nothing else.\n"
+            "Preserve any special characters, numbers, or abbreviations."
+        )
+        if context_block:
+            system_prompt += f"\n\n{context_block}"
+
+        translated = self._call_api(system_prompt, text)
+        self._cache[cache_key] = translated
+        return translated
 
     def _call_api(self, system_prompt: str, user_text: str) -> str:
         """Call the Claude API with retry on rate limits."""
