@@ -62,14 +62,8 @@ def _translate_file(
             print("(no text)")
             continue
 
-        # Build plain-text slide content for context
-        full_slide_text = "\n".join(
-            seg for seg in segments
-        )
-
         translated = translator.translate_segments(
-            segments, source_lang, target_lang,
-            context=context, slide_text=full_slide_text,
+            segments, source_lang, target_lang, context=context
         )
         apply_translations(slide_text, translated, has_markup)
         print(f"({len(segments)} segment(s) translated)")
