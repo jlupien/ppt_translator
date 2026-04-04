@@ -174,9 +174,16 @@ def main(argv: Sequence[str] | None = None) -> None:
         print(f"Error: {e}")
         sys.exit(1)
 
+    # If input is a directory, output goes to a "translated/" subdirectory
+    is_directory_mode = target_path.is_dir()
+
     for pptx_file in files:
         if args.output:
             out = Path(args.output).expanduser().resolve()
+        elif is_directory_mode:
+            out_dir = target_path / "translated"
+            out_dir.mkdir(exist_ok=True)
+            out = out_dir / pptx_file.name
         else:
             out = pptx_file.with_name(f"{pptx_file.stem}_translated{pptx_file.suffix}")
 

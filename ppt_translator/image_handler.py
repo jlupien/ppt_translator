@@ -34,9 +34,13 @@ class TextRegion:
 
 def _get_easyocr_reader():
     """Lazy-load EasyOCR reader (downloads model on first use)."""
+    import warnings
+    import logging
+    warnings.filterwarnings("ignore", message=".*pin_memory.*")
+    logging.getLogger("easyocr").setLevel(logging.ERROR)
     import easyocr
     if not hasattr(_get_easyocr_reader, "_reader"):
-        _get_easyocr_reader._reader = easyocr.Reader(["en"], gpu=False)
+        _get_easyocr_reader._reader = easyocr.Reader(["en"], gpu=False, verbose=False)
     return _get_easyocr_reader._reader
 
 
