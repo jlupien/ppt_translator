@@ -109,7 +109,10 @@ class TranslationService:
             f"{context_block}"
         )
 
-        translated_text = self._call_api(system_prompt, joined)
+        translated_text = self._call_api(
+            system_prompt,
+            f"Translate the following:\n{joined}",
+        )
 
         # Parse response back into segments
         translated_parts = translated_text.split(SEGMENT_DELIMITER.strip())
@@ -152,7 +155,7 @@ class TranslationService:
             if not text.strip():
                 results.append(text)
                 continue
-            translated = self._call_api(system_prompt, text)
+            translated = self._call_api(system_prompt, f"Translate the following:\n{text}")
             results.append(translated)
         return results
 
@@ -252,7 +255,7 @@ class TranslationService:
         if context_block:
             system_prompt += f"\n\n{context_block}"
 
-        translated = self._call_api(system_prompt, text)
+        translated = self._call_api(system_prompt, f"Translate the following:\n{text}")
         self._cache[cache_key] = translated
         return translated
 

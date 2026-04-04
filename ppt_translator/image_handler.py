@@ -3,7 +3,10 @@ from __future__ import annotations
 
 import io
 import base64
+import logging
 from dataclasses import dataclass
+from datetime import datetime
+from pathlib import Path
 from typing import List, Optional, Tuple
 
 import numpy as np
@@ -12,6 +15,25 @@ from PIL import Image, ImageDraw, ImageFont
 
 MIN_IMAGE_DIMENSION = 150  # pixels — skip images smaller than this
 UPSCALE_FACTOR = 3  # scale images up before OCR/rendering for precision
+
+# Debug logger — disabled by default, enabled via enable_debug_logging()
+_log = logging.getLogger("ppt_translator.image")
+_log.setLevel(logging.WARNING)
+_log.propagate = False
+_log_file: Optional[Path] = None
+
+
+def enable_debug_logging() -> Path:
+    """Enable detailed image debug logging to a file. Returns the log path."""
+    global _log_file
+    _log.setLevel(logging.DEBUG)
+    log_dir = Path.home() / ".ppt_translator" / "logs"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    _log_file = log_dir / f"image_debug_{datetime.now():%Y%m%d_%H%M%S}.log"
+    handler = logging.FileHandler(_log_file, encoding="utf-8")
+    handler.setFormatter(logging.Formatter("%(asctime)s  %(message)s", datefmt="%H:%M:%S"))
+    _log.addHandler(handler)
+    return _log_file
 
 
 def is_image_too_small(image_bytes: bytes) -> bool:
@@ -235,14 +257,35 @@ def render_text(
         except OSError:
             return image
 
-    # Center text within the bounding box
+    # Center text within the bounding box, clipping to stay within bounds
     try:
         bbox_text = draw.textbbox((0, 0), text, font=font)
         text_width = bbox_text[2] - bbox_text[0]
         text_height = bbox_text[3] - bbox_text[1]
         x = left + (box_width - text_width) // 2
         y = top + (box_height - text_height) // 2
-        draw.text((x, y), text, fill=text_color, font=font)
+
+        # Clamp draw position so text doesn't overflow outside the bbox
+        x = max(x, left)
+        y = max(y, top)
+
+        _log.debug(
+            "    render_text: font_size=%d  text_size=%dx%d  box=%dx%d  draw_at=(%d,%d)  bbox_offset=(%d,%d)  text=%r",
+            font_size, text_width, text_height, box_width, box_height, x, y,
+            bbox_text[0], bbox_text[1], text,
+        )
+
+        # If text is wider/taller than the box, render onto a cropped layer
+        if text_width > box_width or text_height > box_height:
+            # Draw text on a temporary image, then paste only the portion that fits
+            tmp = Image.new("RGBA", (text_width + 4, text_height + 4), (0, 0, 0, 0))
+            tmp_draw = ImageDraw.Draw(tmp)
+            tmp_draw.text((0, 0), text, fill=text_color + (255,), font=font)
+            # Crop to fit the bounding box
+            tmp_cropped = tmp.crop((0, 0, min(text_width, box_width), min(text_height, box_height)))
+            image.paste(tmp_cropped, (left, top), tmp_cropped)
+        else:
+            draw.text((x, y), text, fill=text_color, font=font)
     except OSError:
         pass  # Skip rendering if font still can't handle it
 
@@ -266,42 +309,81 @@ def translate_image(
     scaled_w, scaled_h = orig_w * UPSCALE_FACTOR, orig_h * UPSCALE_FACTOR
     scaled_image = original_image.resize((scaled_w, scaled_h), Image.LANCZOS)
 
+    _log.debug(
+        "=== translate_image START  orig=%dx%d  scaled=%dx%d  bytes=%d ===",
+        orig_w, orig_h, scaled_w, scaled_h, len(image_bytes),
+    )
+
     # Run OCR on the upscaled image
     scaled_buf = io.BytesIO()
     scaled_image.save(scaled_buf, format="PNG")
     scaled_bytes = scaled_buf.getvalue()
 
     regions = detect_text(scaled_bytes)
+    _log.debug("OCR detected %d regions (before filtering)", len(regions))
     if not regions:
+        _log.debug("No regions — returning None")
         return None
 
     # Skip images with only a short word or two (likely logos/watermarks)
     total_text = " ".join(r.text for r in regions).strip()
     if len(regions) <= 2 and len(total_text) < 15:
+        _log.debug("Skipped (logo filter): %d regions, %d chars", len(regions), len(total_text))
         return None
+
+    for i, r in enumerate(regions):
+        left, top, right, bottom = _bbox_to_rect(r.bbox)
+        _log.debug(
+            "  region[%d] conf=%.2f  bbox=[%d,%d]-[%d,%d]  text=%r",
+            i, r.confidence, left, top, right, bottom, r.text,
+        )
 
     # Step 2: Get image description from Claude Vision for context
     # (send original size to save tokens)
     image_context = translator.describe_image(image_bytes)
+    _log.debug("Image context (first 200 chars): %s", image_context[:200])
 
     # Step 3: For each text region, translate and re-render on the upscaled image
-    for region in regions:
+    for i, region in enumerate(regions):
+        left, top, right, bottom = _bbox_to_rect(region.bbox)
         try:
             translated = translator.translate_image_text(
                 region.text, source_lang, target_lang,
                 deck_context=deck_context, image_context=image_context,
             )
 
+            # Guard: if Claude returned something wildly longer than the
+            # original (e.g. a description instead of a translation), or
+            # containing newlines (multi-paragraph response), skip it.
+            len_ratio = len(translated) / max(len(region.text), 1)
+            if len_ratio > 3 or "\n" in translated:
+                _log.debug(
+                    "  [%d] SKIPPED bad translation (ratio=%.1f, newlines=%s): %r -> %r",
+                    i, len_ratio, "\n" in translated, region.text, translated[:120],
+                )
+                continue
+
             bg_color = sample_background_color(scaled_image, region.bbox)
             text_color = _detect_text_color(scaled_image, region.bbox, bg_color)
 
+            _log.debug(
+                "  [%d] ERASE  bbox=[%d,%d]-[%d,%d]  bg=%s",
+                i, left, top, right, bottom, bg_color,
+            )
             scaled_image = erase_text(scaled_image, region.bbox, bg_color)
+
+            _log.debug(
+                "  [%d] RENDER bbox=[%d,%d]-[%d,%d]  text=%r  color=%s",
+                i, left, top, right, bottom, translated, text_color,
+            )
             scaled_image = render_text(scaled_image, region.bbox, translated, text_color)
         except Exception as e:
+            _log.debug("  [%d] ERROR: %s", i, e)
             print(f"    Warning: skipped image text region '{region.text}': {e}")
 
     # Step 4: Scale back down to original size
     final_image = scaled_image.resize((orig_w, orig_h), Image.LANCZOS)
+    _log.debug("=== translate_image END ===")
 
     # Step 5: Export in original format
     output = io.BytesIO()

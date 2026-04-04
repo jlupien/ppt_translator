@@ -156,6 +156,11 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Also translate text within images (requires easyocr).",
     )
+    parser.add_argument(
+        "--debug-images",
+        action="store_true",
+        help="Write detailed image translation logs to ~/.ppt_translator/logs/.",
+    )
     return parser
 
 
@@ -173,6 +178,11 @@ def main(argv: Sequence[str] | None = None) -> None:
     if args.output and len(files) > 1:
         print("Error: --output can only be used with a single input file.")
         sys.exit(1)
+
+    if args.debug_images:
+        from .image_handler import enable_debug_logging
+        log_path = enable_debug_logging()
+        print(f"Image debug log: {log_path}")
 
     try:
         translator = TranslationService(model=args.model)
