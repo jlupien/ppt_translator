@@ -35,6 +35,9 @@ python -m ppt_translator ./slides/ -t German
 
 # Also translate text within images (diagrams, charts, labels)
 python -m ppt_translator presentation.pptx -t French --translate-images
+
+# Translate a directory with images and debug info
+python -m ppt_translator ./slides/ -s English -t French --translate-images --debug-images
 ```
 
 By default, the translated file is saved as `<original>_translated.pptx` in the same directory.
