@@ -167,37 +167,54 @@ class TranslationService:
         else:
             media_type = "image/png"  # Default
 
-        response = self.client.messages.create(
-            model=self.model,
-            max_tokens=1024,
-            temperature=0.0,
-            system=(
-                "You are analyzing an image from a presentation slide. "
-                "Describe what the image shows and list all visible text in context. "
-                "Be concise (under 200 words). Focus on what the text means in context — "
-                "this description will be used to help translate the text accurately."
-            ),
-            messages=[{
-                "role": "user",
-                "content": [
-                    {
-                        "type": "image",
-                        "source": {
-                            "type": "base64",
-                            "media_type": media_type,
-                            "data": b64,
-                        },
-                    },
-                    {
-                        "type": "text",
-                        "text": "Describe this image and all visible text within it.",
-                    },
-                ],
-            }],
-        )
-        return "".join(
-            part.text for part in response.content if hasattr(part, "text")
-        ).strip()
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                response = self.client.messages.create(
+                    model=self.model,
+                    max_tokens=1024,
+                    temperature=0.0,
+                    system=(
+                        "You are analyzing an image from a presentation slide. "
+                        "Describe what the image shows and list all visible text in context. "
+                        "Be concise (under 200 words). Focus on what the text means in context — "
+                        "this description will be used to help translate the text accurately."
+                    ),
+                    messages=[{
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "image",
+                                "source": {
+                                    "type": "base64",
+                                    "media_type": media_type,
+                                    "data": b64,
+                                },
+                            },
+                            {
+                                "type": "text",
+                                "text": "Describe this image and all visible text within it.",
+                            },
+                        ],
+                    }],
+                )
+                return "".join(
+                    part.text for part in response.content if hasattr(part, "text")
+                ).strip()
+            except RateLimitError:
+                if attempt < max_retries - 1:
+                    wait = 2 ** (attempt + 1)
+                    print(f"\n    Rate limited (vision), retrying in {wait}s...", flush=True)
+                    time.sleep(wait)
+                else:
+                    raise
+            except APIError as e:
+                if attempt < max_retries - 1 and e.status_code and e.status_code >= 500:
+                    wait = 2 ** (attempt + 1)
+                    print(f"\n    API error ({e.status_code}, vision), retrying in {wait}s...", flush=True)
+                    time.sleep(wait)
+                else:
+                    raise
 
     def translate_image_text(
         self,

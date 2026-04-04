@@ -79,7 +79,7 @@ def _translate_file(
             from .image_handler import translate_image, is_image_too_small
 
             images = extract_images(slide)
-            for img_info in images:
+            for img_idx, img_info in enumerate(images):
                 # Skip small images (logos, icons, bullets)
                 if is_image_too_small(img_info.image_bytes):
                     continue
@@ -90,6 +90,7 @@ def _translate_file(
                     continue
                 _processed_image_hashes.add(img_hash)
 
+                print(f"\n    Processing image {img_idx + 1}/{len(images)}...", end="", flush=True)
                 new_bytes = translate_image(
                     img_info.image_bytes, translator,
                     source_lang, target_lang, deck_context=context,
@@ -97,6 +98,11 @@ def _translate_file(
                 if new_bytes is not None:
                     replace_image(img_info.shape, new_bytes)
                     img_count += 1
+                    print(" done.", end="", flush=True)
+                else:
+                    print(" skipped.", end="", flush=True)
+            if images:
+                print(flush=True)  # newline after image progress
 
         # Progress output
         parts = []
