@@ -201,10 +201,17 @@ def erase_text(
 def _find_font(size: int) -> ImageFont.FreeTypeFont:
     """Try to load a clean sans-serif font, falling back to default."""
     font_paths = [
+        # macOS
         "/System/Library/Fonts/Helvetica.ttc",
         "/System/Library/Fonts/SFNSText.ttf",
         "/Library/Fonts/Arial.ttf",
+        # Windows
+        "C:\\Windows\\Fonts\\arial.ttf",
+        "C:\\Windows\\Fonts\\calibri.ttf",
+        "C:\\Windows\\Fonts\\segoeui.ttf",
+        # Linux
         "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
     ]
     for path in font_paths:
         try:
